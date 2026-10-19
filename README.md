@@ -4,11 +4,20 @@ Base de datos relacional con indicadores del mercado laboral colombiano, constru
 
 **Equipo:** Lina Bautista, Jessica Gil, Mariana Ussa y Jorge Reza.
 
-Este repositorio contiene el **Entregable 2**: la fase relacional (diseño, base de datos en SQL y preparación de los datos en Python).
+Este repositorio reúne los entregables del proyecto:
+
+- **Entregable 1:** planteamiento del proyecto y alternativas de diseño.
+- **Entregable 2:** fase relacional (diseño, base de datos en SQL y preparación de los datos en Python).
 
 ## Contenido del repositorio
 
 ```
+Entregable 1/
+├── Entregable_1_Proyecto_IngDatos.pdf   Documento del entregable
+├── Alternativa1.drawio.png              Primera alternativa de diseño
+├── Alternativa2..drawio.png             Segunda alternativa de diseño
+└── diagrama_clases_proyecto.drawio.png  Diagrama de clases
+
 Entregable 2/
 ├── Entregable_2_Proyecto_IngDatos.pdf   Documento del entregable
 ├── Diccionario BD.xlsx                  Diccionario de datos (una hoja por tabla)
@@ -19,3 +28,4 @@ Entregable 2/
 ├── Microdatos GEIH/                     Archivos originales del DANE, por año y mes
 └── Datos para BD/                       CSV ya procesados, listos para cargar en SQL
 ```
+
