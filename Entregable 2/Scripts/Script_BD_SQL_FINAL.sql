@@ -493,7 +493,7 @@ show global variables like 'local_infile';
 set global local_infile = 1;
 
 -- Nota: Se pone una ruta fija para que cualquiera cambie la ubicación de la carpeta de los datos en su dispositivo
-@set ruta = C:/Users/jessi/OneDrive/Documents/GitHub/Proyecto-ingeniera-de-datos-/Entregable 2/Datos para BD
+@set ruta = C:/Users/jessi/OneDrive/Documents/GitHub/Proyecto-ingeniera-de-datos-/Datos para BD
 -- 3.8 Tabla Persona
 load data infile '${ruta}/2026/Enero/persona_202601.csv'
 into table persona
