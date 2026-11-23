@@ -5,6 +5,7 @@ Requiere: 1) que Script_BD_MongoDB.js ya se haya corrido en mongosh (colecciones
 e indicador calculados ahí). Se corre con: python cargar_mongo.py
 """
 import io
+import os
 import subprocess
 
 import pandas as pd
@@ -14,10 +15,25 @@ RAIZ_DATOS = r"C:\Users\jessi\OneDrive\Documents\GitHub\Proyecto-ingeniera-de-da
 MYSQL_EXE = r"C:\xampp\mysql\bin\mysql.exe"
 MYSQL_DB = "proyecto_geih"
 
-PERIODOS = [
-    (202601, "Enero"), (202602, "Febrero"), (202603, "Marzo"), (202604, "Abril"),
-    (202605, "Mayo"), (202606, "Junio"), (202607, "Julio"), (202608, "Agosto"),
-]
+NOMBRE_MES = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+              7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+
+
+def periodos_disponibles():
+    """En vez de una lista fija de periodos, se detectan los que ya tienen CSV en Datos para BD
+    (así, cuando se agrega un periodo nuevo como el de la demo en vivo, este script lo recoge solo,
+    sin tener que editar el código cada vez)."""
+    base_2026 = os.path.join(RAIZ_DATOS, "2026")
+    periodos = []
+    for mes in range(1, 13):
+        carpeta = os.path.join(base_2026, NOMBRE_MES[mes])
+        idPeriodo = 202600 + mes
+        if os.path.isfile(os.path.join(carpeta, "persona_%d.csv" % idPeriodo)):
+            periodos.append((idPeriodo, NOMBRE_MES[mes]))
+    return periodos
+
+
+PERIODOS = periodos_disponibles()
 
 cliente = pymongo.MongoClient("mongodb://localhost:27017")
 db = cliente["proyecto_geih"]
@@ -82,34 +98,36 @@ def cargar_persona_ocupado_desocupado():
 
 
 def cargar_tipoIndicador_e_indicador():
-    if db.tipoIndicador.count_documents({}) == 0:
-        t = consultar_mysql(
-            "select idTipoIndicador, idPeriodo, idSexo, idRangoEdad, idTerritorio, idRamaActividad, "
-            "nombreIndicador, formula, periodicidad from tipoIndicador"
-        )
-        registros = construir_registros(
-            t, columnas_int=("idTipoIndicador", "idPeriodo", "idSexo", "idRangoEdad",
-                              "idTerritorio", "idRamaActividad"))
+    # Incremental: se compara contra lo que ya hay en Mongo (por id), no contra "la colección está
+    # vacía o no" — así recoge los periodos nuevos (como el de la demo) sin duplicar los que ya estaban.
+    ids_tipo_existentes = set(db.tipoIndicador.distinct("idTipoIndicador"))
+    t = consultar_mysql(
+        "select idTipoIndicador, idPeriodo, idSexo, idRangoEdad, idTerritorio, idRamaActividad, "
+        "nombreIndicador, formula, periodicidad from tipoIndicador"
+    )
+    t = t[~t["idTipoIndicador"].isin(ids_tipo_existentes)]
+    registros = construir_registros(
+        t, columnas_int=("idTipoIndicador", "idPeriodo", "idSexo", "idRangoEdad",
+                          "idTerritorio", "idRamaActividad"))
+    if registros:
         db.tipoIndicador.insert_many(registros)
-        print("tipoIndicador cargado: %d filas" % len(registros))
-    else:
-        print("tipoIndicador ya tenía datos, se omite")
+    print("tipoIndicador: %d filas nuevas insertadas" % len(registros))
 
-    if db.indicador.count_documents({}) == 0:
-        i = consultar_mysql(
-            "select idIndicador, idTipoIndicador, idUsuario, valorIndicador, cvIndicador, "
-            "date_format(fechaCalculoIndicador,'%Y-%m-%d') as fechaCalculoIndicador from indicador"
-        )
-        i["fechaCalculoIndicador"] = pd.to_datetime(i["fechaCalculoIndicador"])
-        registros = construir_registros(
-            i, columnas_int=("idIndicador", "idTipoIndicador", "idUsuario"),
-            columnas_float=("valorIndicador", "cvIndicador"))
-        for r in registros:
-            r["fechaCalculoIndicador"] = r["fechaCalculoIndicador"].to_pydatetime()
+    ids_ind_existentes = set(db.indicador.distinct("idIndicador"))
+    i = consultar_mysql(
+        "select idIndicador, idTipoIndicador, idUsuario, valorIndicador, cvIndicador, "
+        "date_format(fechaCalculoIndicador,'%Y-%m-%d') as fechaCalculoIndicador from indicador"
+    )
+    i = i[~i["idIndicador"].isin(ids_ind_existentes)]
+    i["fechaCalculoIndicador"] = pd.to_datetime(i["fechaCalculoIndicador"])
+    registros = construir_registros(
+        i, columnas_int=("idIndicador", "idTipoIndicador", "idUsuario"),
+        columnas_float=("valorIndicador", "cvIndicador"))
+    for r in registros:
+        r["fechaCalculoIndicador"] = r["fechaCalculoIndicador"].to_pydatetime()
+    if registros:
         db.indicador.insert_many(registros)
-        print("indicador cargado: %d filas" % len(registros))
-    else:
-        print("indicador ya tenía datos, se omite")
+    print("indicador: %d filas nuevas insertadas" % len(registros))
 
 
 if __name__ == "__main__":

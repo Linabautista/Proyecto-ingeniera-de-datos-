@@ -2132,6 +2132,8 @@ order by t.idPeriodo;
 -- que se refleje en el tablero. No se corre junto con el resto del
 -- script: se deja para ejecutar aparte durante la presentación.
 -- ============================================================
+use proyecto_geih;
+
 -- 202609
 load data infile '${ruta}/2026/Septiembre/persona_202609.csv'
 into table persona
