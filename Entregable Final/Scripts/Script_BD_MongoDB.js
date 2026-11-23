@@ -1,16 +1,12 @@
 // ========================================================
-// Del microdato al indicador - Entregable 2 (versión MongoDB)
+// Del microdato al indicador - Entregable Final (versión MongoDB)
 // Realizado por: Lina Bautista, Jessica Gil, Mariana Ussa y Jorge Reza
 // ========================================================
 
-// Limitaciones conocidas frente a la versión SQL (MongoDB Community no tiene
-// triggers de servidor ni llaves foráneas fuera de Atlas, así que esto no se  puede resolver 
-
-
-use proyecto_geih
+db = db.getSiblingDB('proyecto_geih');
 
 // ========================================================
-// 1. Colecciones de las tablas grandes (se cargan por CSV desde la interfaz)
+// 1. Colecciones de las tablas grandes (se cargan por CSV)
 // ========================================================
 
 // 1.1 persona
@@ -428,7 +424,7 @@ db.createView("v_ocupados_por_rama", "v_infoPersonas", [
 ]);
 
 // ========================================================
-// Agregaciones y Consultas
+// 4. Consultas para el tablero
 // ========================================================
 
 // persona: población expandida por periodo
@@ -529,7 +525,317 @@ db.v_resumen_laboral_periodo.find().sort({ idPeriodo: 1 });
 db.v_ocupados_por_rama.find({ idPeriodo: 202601 }).sort({ ocupadosExpandidos: -1 });
 
 // ========================================================
-// 5. Auditoría manual de indicador (sin triggers: se llama a mano, como con cualquier
+// 5. Consultas específicas por colección (7 por colección, equivalentes a las de
+//    los conteos ponderados fijan un periodo (202601, enero de 2026)
+//    para no contar dos veces.
+// ========================================================
+
+// --- persona ---
+// 1. personas mayores de 20 años en enero de 2026
+db.persona.aggregate([
+  { $match: { idPeriodo: 202601, edad: { $gt: 20 } } },
+  { $group: { _id: null, personasMuestra: { $sum: 1 }, personasExpandidas: { $sum: "$factorExpansion" } } }
+]);
+// 2. personas entre 18 y 30 años en enero de 2026
+db.persona.aggregate([
+  { $match: { idPeriodo: 202601, edad: { $gte: 18, $lte: 30 } } },
+  { $group: { _id: null, personasMuestra: { $sum: 1 }, personasExpandidas: { $sum: "$factorExpansion" } } }
+]);
+// 3. mujeres en enero de 2026
+db.persona.aggregate([
+  { $match: { idPeriodo: 202601, idSexo: 2 } },
+  { $group: { _id: null, mujeresMuestra: { $sum: 1 }, mujeresExpandidas: { $sum: "$factorExpansion" } } }
+]);
+// 4. población de 2026 por periodo
+db.persona.aggregate([
+  { $group: { _id: "$idPeriodo", personasMuestra: { $sum: 1 }, personasExpandidas: { $sum: "$factorExpansion" } } },
+  { $sort: { _id: 1 } }
+]);
+// 5. población en edad de trabajar por periodo
+db.persona.aggregate([
+  { $match: { pet: 1 } },
+  { $group: { _id: "$idPeriodo", petMuestra: { $sum: 1 }, petExpandida: { $sum: "$factorExpansion" } } },
+  { $sort: { _id: 1 } }
+]);
+// 6. personas por sexo en enero de 2026
+db.persona.aggregate([
+  { $match: { idPeriodo: 202601 } },
+  { $group: { _id: "$idSexo", cantidadPersonas: { $sum: 1 }, personasExpandidas: { $sum: "$factorExpansion" } } }
+]);
+// 7. edad promedio ponderada en enero de 2026
+db.persona.aggregate([
+  { $match: { idPeriodo: 202601 } },
+  { $group: { _id: null, sumaPonderada: { $sum: { $multiply: ["$edad", "$factorExpansion"] } }, sumaPesos: { $sum: "$factorExpansion" } } },
+  { $project: { _id: 0, edadPromedio: { $round: [{ $divide: ["$sumaPonderada", "$sumaPesos"] }, 1] } } }
+]);
+
+// --- ocupado ---
+// 1. ocupados con jornada superior a 48 horas semanales
+db.ocupado.find({ horasTrabajo: { $gt: 48 } }, { idPersona: 1, idRama: 1, horasTrabajo: 1 }).sort({ horasTrabajo: -1 });
+// 2. ocupados que no cotizan a pensión
+db.ocupado.countDocuments({ cotizaPension: 0 });
+// 3. ingreso mínimo, máximo y promedio de los ocupados con ingreso
+db.ocupado.aggregate([
+  { $match: { ingreso: { $gt: 0 } } },
+  { $group: { _id: null, minimo: { $min: "$ingreso" }, maximo: { $max: "$ingreso" }, promedio: { $avg: "$ingreso" } } }
+]);
+// 4. horas semanales promedio de trabajo
+db.ocupado.aggregate([
+  { $match: { horasTrabajo: { $ne: null } } },
+  { $group: { _id: null, horasPromedio: { $avg: "$horasTrabajo" } } }
+]);
+// 5. ocupados sin ingreso reportado o con ingreso cero
+db.ocupado.find({ $or: [{ ingreso: null }, { ingreso: 0 }] }, { idPersona: 1, idRama: 1, ingreso: 1 });
+// 6. las 5 ramas con más ocupados en la muestra
+db.ocupado.aggregate([
+  { $match: { idRama: { $ne: null } } },
+  { $group: { _id: "$idRama", ocupados: { $sum: 1 } } },
+  { $sort: { ocupados: -1 } },
+  { $limit: 5 }
+]);
+// 7. ingreso promedio por rama (ramas con al menos 5 ocupados con ingreso)
+db.ocupado.aggregate([
+  { $match: { ingreso: { $gt: 0 } } },
+  { $group: { _id: "$idRama", ocupados: { $sum: 1 }, ingresoPromedio: { $avg: "$ingreso" } } },
+  { $match: { ocupados: { $gte: 5 } } },
+  { $sort: { ingresoPromedio: -1 } }
+]);
+
+// --- desocupado ---
+// 1. total de desocupados en la muestra
+db.desocupado.countDocuments();
+// 2. primer y último identificador de desocupado
+db.desocupado.aggregate([
+  { $group: { _id: null, primero: { $min: "$idPersona" }, ultimo: { $max: "$idPersona" } } }
+]);
+// 3. los 10 primeros desocupados por identificador
+db.desocupado.find().sort({ idPersona: 1 }).limit(10);
+// 4. los 5 últimos desocupados por identificador
+db.desocupado.find().sort({ idPersona: -1 }).limit(5);
+// 5. desocupados cuyo identificador empieza por 5
+db.desocupado.countDocuments({ idPersona: /^5/ });
+// 6. longitud de los identificadores de desocupado
+db.desocupado.aggregate([
+  { $group: { _id: { $strLenCP: "$idPersona" }, desocupados: { $sum: 1 } } }
+]);
+// 7. directorios con más de un desocupado (primeros 8 dígitos del identificador)
+db.desocupado.aggregate([
+  { $group: { _id: { $substrCP: ["$idPersona", 0, 8] }, desocupados: { $sum: 1 } } },
+  { $match: { desocupados: { $gt: 1 } } },
+  { $sort: { desocupados: -1 } }
+]);
+
+// --- usuario ---
+// 1. usuarios por rol
+db.usuario.aggregate([{ $group: { _id: "$rolUsuario", usuarios: { $sum: 1 } } }]);
+// 2. usuarios activos e inactivos por rol
+db.usuario.aggregate([
+  { $group: { _id: "$rolUsuario",
+      activos: { $sum: { $cond: ["$activo", 1, 0] } },
+      inactivos: { $sum: { $cond: ["$activo", 0, 1] } } } },
+  { $sort: { _id: 1 } }
+]);
+// 3. usuarios ordenados por nombre
+db.usuario.find({}, { nombreUsuario: 1, rolUsuario: 1 }).sort({ nombreUsuario: 1 });
+// 4. usuarios inactivos
+db.usuario.find({ activo: false }, { idUsuario: 1, nombreUsuario: 1, rolUsuario: 1 });
+// 5. usuarios con rol de investigador o ingeniero de datos
+db.usuario.find({ rolUsuario: { $in: ["investigador", "ingeniero de datos"] } }, { nombreUsuario: 1, rolUsuario: 1 })
+  .sort({ rolUsuario: 1, nombreUsuario: 1 });
+// 6. usuarios por dominio de correo
+db.usuario.aggregate([
+  { $group: { _id: { $arrayElemAt: [{ $split: ["$correoUsuario", "@"] }, 1] }, usuarios: { $sum: 1 } } }
+]);
+// 7. usuarios cuyo correo contiene "andres"
+db.usuario.find({ correoUsuario: /andres/i }, { nombreUsuario: 1, correoUsuario: 1 });
+
+// --- periodo (catálogo vigente: 2026, enero a septiembre) ---
+// 1. periodos del primer trimestre
+db.periodo.find({ mes: { $gte: 1, $lte: 3 } }).sort({ mes: 1 });
+// 2. periodos del segundo trimestre
+db.periodo.find({ mes: { $gte: 4, $lte: 6 } }).sort({ mes: 1 });
+// 3. periodos del tercer trimestre
+db.periodo.find({ mes: { $gte: 7, $lte: 9 } }).sort({ mes: 1 });
+// 4. último periodo del catálogo
+db.periodo.find().sort({ idPeriodo: -1 }).limit(1);
+// 5. primer periodo del catálogo
+db.periodo.find().sort({ idPeriodo: 1 }).limit(1);
+// 6. cantidad de periodos del catálogo
+db.periodo.countDocuments();
+// 7. periodo correspondiente a septiembre
+db.periodo.findOne({ mes: 9 });
+
+// --- sexo ---
+// 1. categoría con identificador 1
+db.sexo.findOne({ idSexo: 1 });
+// 2. categorías cuyo nombre empieza por "M"
+db.sexo.find({ nombreSexo: /^M/ });
+// 3. cantidad de categorías
+db.sexo.countDocuments();
+// 4. categorías ordenadas por nombre de forma descendente
+db.sexo.find().sort({ nombreSexo: -1 });
+// 5. longitud del nombre de cada categoría
+db.sexo.aggregate([{ $project: { nombreSexo: 1, longitud: { $strLenCP: "$nombreSexo" } } }]);
+// 6. nombres en mayúsculas
+db.sexo.aggregate([{ $project: { idSexo: 1, nombreMayuscula: { $toUpper: "$nombreSexo" } } }]);
+// 7. identificador más alto del catálogo
+db.sexo.aggregate([{ $group: { _id: null, ultimoId: { $max: "$idSexo" } } }]);
+
+// --- rangoEdad ---
+// 1. rangos ordenados por edad inicial
+db.rangoEdad.find({}, { nombreRangoEdad: 1, edadInicial: 1, edadFinal: 1 }).sort({ edadInicial: 1 });
+// 2. rango abierto (sin edad final)
+db.rangoEdad.find({ edadFinal: null });
+// 3. amplitud en años de cada rango cerrado
+db.rangoEdad.aggregate([
+  { $match: { edadFinal: { $ne: null } } },
+  { $project: { nombreRangoEdad: 1, anios: { $add: [{ $subtract: ["$edadFinal", "$edadInicial"] }, 1] } } }
+]);
+// 4. rango al que pertenece una persona de 30 años
+db.rangoEdad.findOne({ edadInicial: { $lte: 30 }, $or: [{ edadFinal: null }, { edadFinal: { $gte: 30 } }] });
+// 5. rangos cerrados con amplitud mayor a 15 años
+db.rangoEdad.aggregate([
+  { $match: { edadFinal: { $ne: null } } },
+  { $project: { nombreRangoEdad: 1, anios: { $add: [{ $subtract: ["$edadFinal", "$edadInicial"] }, 1] } } },
+  { $match: { anios: { $gt: 15 } } }
+]);
+// 6. edad inicial más baja del catálogo
+db.rangoEdad.aggregate([{ $group: { _id: null, edadMinima: { $min: "$edadInicial" } } }]);
+// 7. rangos que empiezan después de los 25 años
+db.rangoEdad.find({ edadInicial: { $gt: 25 } }).sort({ edadInicial: 1 });
+
+// --- territorio ---
+// 1. territorios por tipo
+db.territorio.aggregate([{ $group: { _id: "$tipoTerritorio", territorios: { $sum: 1 } } }]);
+// 2. ciudades en orden alfabético
+db.territorio.find({ tipoTerritorio: "ciudad" }, { nombreTerritorio: 1 }).sort({ nombreTerritorio: 1 });
+// 3. áreas metropolitanas (nombre con "A.M.")
+db.territorio.find({ nombreTerritorio: /A\.M\./ });
+// 4. zonas (urbano y rural)
+db.territorio.find({ tipoTerritorio: "zona" });
+// 5. territorio nacional
+db.territorio.find({ tipoTerritorio: "nacional" });
+// 6. ciudades con código de territorio mayor a 50
+db.territorio.find({ tipoTerritorio: "ciudad", idTerritorio: { $gt: 50 } }, { idTerritorio: 1, nombreTerritorio: 1 }).sort({ idTerritorio: 1 });
+// 7. ciudades que no son área metropolitana
+db.territorio.find({ tipoTerritorio: "ciudad", nombreTerritorio: { $not: /A\.M\./ } }, { nombreTerritorio: 1 }).sort({ nombreTerritorio: 1 });
+
+// --- ramaActividad ---
+// 1. las cinco primeras ramas del catálogo
+db.ramaActividad.find({ idRamaActividad: { $gte: 1, $lte: 5 } });
+// 2. ramas cuyo nombre incluye "comercio"
+db.ramaActividad.find({ nombreRama: /comercio/i });
+// 3. ramas ordenadas alfabéticamente
+db.ramaActividad.find().sort({ nombreRama: 1 });
+// 4. rama con el nombre más largo
+db.ramaActividad.aggregate([
+  { $project: { nombreRama: 1, longitud: { $strLenCP: "$nombreRama" } } },
+  { $sort: { longitud: -1 } },
+  { $limit: 1 }
+]);
+// 5. cantidad de ramas del catálogo
+db.ramaActividad.countDocuments();
+// 6. ramas cuyo nombre incluye la palabra "servicios"
+db.ramaActividad.find({ nombreRama: /servicios/i });
+// 7. ramas con identificador entre 6 y 10
+db.ramaActividad.find({ idRamaActividad: { $gte: 6, $lte: 10 } });
+
+// --- tipoIndicador ---
+// 1. cantidad de definiciones por indicador
+db.tipoIndicador.aggregate([
+  { $group: { _id: "$nombreIndicador", definiciones: { $sum: 1 } } },
+  { $sort: { definiciones: -1 } }
+]);
+// 2. definiciones nacionales sin ninguna otra desagregación
+db.tipoIndicador.find(
+  { idTerritorio: 3, idSexo: null, idRangoEdad: null, idRamaActividad: null },
+  { idTipoIndicador: 1, nombreIndicador: 1, idPeriodo: 1 }
+).sort({ idPeriodo: 1, nombreIndicador: 1 });
+// 3. definiciones por periodo y periodicidad
+db.tipoIndicador.aggregate([
+  { $group: { _id: { idPeriodo: "$idPeriodo", periodicidad: "$periodicidad" }, definiciones: { $sum: 1 } } },
+  { $sort: { "_id.idPeriodo": 1 } }
+]);
+// 4. definiciones nacionales de la tasa de desocupación con su fórmula
+db.tipoIndicador.find(
+  { nombreIndicador: "Tasa de desocupación", idTerritorio: 3, idSexo: null, idRangoEdad: null, idRamaActividad: null },
+  { idTipoIndicador: 1, idPeriodo: 1, formula: 1 }
+);
+// 5. definiciones de enero de 2026 desagregadas por sexo
+db.tipoIndicador.find(
+  { idPeriodo: 202601, idSexo: { $ne: null } },
+  { idTipoIndicador: 1, nombreIndicador: 1, idSexo: 1 }
+).sort({ nombreIndicador: 1, idSexo: 1 });
+// 6. definiciones de enero de 2026 desagregadas por rama de actividad
+db.tipoIndicador.find(
+  { idPeriodo: 202601, idRamaActividad: { $ne: null } },
+  { nombreIndicador: 1, idRamaActividad: 1 }
+).sort({ nombreIndicador: 1, idRamaActividad: 1 });
+// 7. definiciones de enero de 2026 desagregadas por rango de edad
+db.tipoIndicador.find(
+  { idPeriodo: 202601, idRangoEdad: { $ne: null } },
+  { nombreIndicador: 1, idRangoEdad: 1 }
+).sort({ nombreIndicador: 1, idRangoEdad: 1 });
+
+// --- indicador ---
+// 1. indicadores con baja confiabilidad (CV superior a 15 %)
+db.indicador.countDocuments({ cvIndicador: { $gt: 15 } });
+// 2. indicadores con confiabilidad aceptable (CV entre 5 % y 15 %)
+db.indicador.find(
+  { cvIndicador: { $gte: 5, $lte: 15 } },
+  { idIndicador: 1, idTipoIndicador: 1, valorIndicador: 1, cvIndicador: 1 }
+).sort({ cvIndicador: 1 }).limit(10);
+// 3. valor mínimo, máximo y promedio de los indicadores
+db.indicador.aggregate([
+  { $group: { _id: null, minimo: { $min: "$valorIndicador" }, maximo: { $max: "$valorIndicador" }, promedio: { $avg: "$valorIndicador" } } }
+]);
+// 4. indicadores calculados por día
+db.indicador.aggregate([
+  { $group: { _id: "$fechaCalculoIndicador", indicadores: { $sum: 1 } } },
+  { $sort: { _id: 1 } }
+]);
+// 5. indicadores calculados por cada usuario
+db.indicador.aggregate([
+  { $group: { _id: "$idUsuario", indicadores: { $sum: 1 } } },
+  { $sort: { indicadores: -1 } }
+]);
+// 6. los 10 indicadores con mayor valor
+db.indicador.find(
+  {},
+  { idIndicador: 1, idTipoIndicador: 1, valorIndicador: 1, cvIndicador: 1 }
+).sort({ valorIndicador: -1 }).limit(10);
+// 7. indicadores clasificados por confiabilidad según su CV
+db.indicador.aggregate([
+  { $group: { _id: {
+      $switch: { branches: [
+        { case: { $eq: ["$cvIndicador", null] }, then: "sin CV" },
+        { case: { $lte: ["$cvIndicador", 5] }, then: "alta (CV hasta 5 %)" },
+        { case: { $lte: ["$cvIndicador", 15] }, then: "aceptable (CV hasta 15 %)" }
+      ], default: "baja (CV mayor a 15 %)" } },
+      indicadores: { $sum: 1 } } }
+]);
+
+// ========================================================
+// 6. Modificaciones: solo usuario se modifica. persona/ocupado/desocupado son el microdato del
+//    DANE (no se altera, solo se agregan periodos nuevos); tipoIndicador/indicador son datos
+//    derivados que se recalculan completos con sp_calcular_periodo/cargar_mongo.py, no se editan
+//    a mano fila por fila; auditoriaIndicador es un registro de solo lectura. En SQL esto mismo
+//    lo bloquean los triggers trg_persona_bu/bd, trg_ocupado_bu/bd, trg_desocupado_bu/bd y
+//    trg_auditoria_bu/bd — Mongo Community no tiene triggers, así que aquí queda como una regla
+//    de uso
+// ========================================================
+
+// Inactivar un usuario sin eliminar su registro (no se borra: se conserva el historial de qué
+// usuario calculó cada indicador).
+db.usuario.updateOne({ idUsuario: 1 }, { $set: { activo: false } });
+// Verificación
+db.usuario.findOne({ idUsuario: 1 });
+// Revertir (como el rollback de la transacción equivalente en SQL): deja la base intacta
+// para que la prueba se pueda repetir.
+db.usuario.updateOne({ idUsuario: 1 }, { $set: { activo: true } });
+
+// ========================================================
+// 7. Auditoría manual de indicador (sin triggers: se llama a mano, como con cualquier
 //    otra operación en Mongo, p. ej. createIndex)
 // ========================================================
 
