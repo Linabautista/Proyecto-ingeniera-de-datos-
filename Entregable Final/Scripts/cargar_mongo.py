@@ -68,6 +68,20 @@ def construir_registros(df, columnas_int=(), columnas_float=()):
     return registros
 
 
+def asegurar_periodo():
+    """El catálogo periodo de Script_BD_MongoDB.js solo llega hasta donde llegaba el alcance
+    original (2026-09). Si falta el periodo de un CSV nuevo (p. ej. el de una demo), v_indicador_detalle
+    lo descarta por completo: hace $lookup con periodo y $unwind, y $unwind borra la fila cuando no
+    encuentra coincidencia. Por eso hay que asegurar el catálogo antes de cargar indicadores."""
+    for idPeriodo, _ in PERIODOS:
+        anio, mes = idPeriodo // 100, idPeriodo % 100
+        db.periodo.update_one(
+            {"idPeriodo": idPeriodo},
+            {"$setOnInsert": {"idPeriodo": idPeriodo, "anio": anio, "mes": mes}},
+            upsert=True,
+        )
+
+
 def cargar_persona_ocupado_desocupado():
     for idPeriodo, carpeta in PERIODOS:
         if db.persona.count_documents({"idPeriodo": idPeriodo}, limit=1):
@@ -131,6 +145,7 @@ def cargar_tipoIndicador_e_indicador():
 
 
 if __name__ == "__main__":
+    asegurar_periodo()
     cargar_persona_ocupado_desocupado()
     cargar_tipoIndicador_e_indicador()
     print("Listo.")

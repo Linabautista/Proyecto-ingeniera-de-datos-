@@ -2170,6 +2170,54 @@ call sp_calcular_periodo(202609, 12);
 call sp_verificar_microdato(202609);
 select * from v_indicador_vigente where anio = 2026 and mes = 9 limit 20;
 
+-- ============================================================
+-- Ejercicio de Prueba agregar un periodo nuevo (octubre 2026) con datos de prueba
+-- pequeños (no son microdatos reales del DANE; ver Microdatos GEIH/2026/Octubre).
+-- Requiere que preparar_geih.ipynb ya haya generado persona_202610.csv/ocupado_202610.csv/
+-- desocupado_202610.csv en Datos para BD/2026/Octubre. Igual que con septiembre, no se corre
+-- junto con el resto del script: se deja para ejecutar aparte durante la presentación.
+-- ============================================================
+use proyecto_geih;
+
+-- octubre no estaba en el catálogo de periodos (el alcance original solo llegaba a 202609)
+insert into periodo (idPeriodo, anio, mes) values (202610, 2026, 10);
+
+-- 202610
+load data infile '${ruta}/2026/Octubre/persona_202610.csv'
+into table persona
+fields terminated by ','
+lines terminated by '\n'
+ignore 1 lines
+(idPersona, idPeriodo, idSexo, edad, clase, area, @factorExpansion)
+set factorExpansion = trim(trailing '\r' from @factorExpansion);
+
+-- 3.2 Tabla Ocupado
+load data infile '${ruta}/2026/Octubre/ocupado_202610.csv'
+into table ocupado
+fields terminated by ','
+lines terminated by '\n'
+ignore 1 lines
+(idPersona, @idRama, @horasTrabajo, @ingreso, @cotizaPension)
+set idRama = nullif(@idRama, ''),
+    horasTrabajo = nullif(@horasTrabajo, ''),
+    ingreso = nullif(@ingreso, ''),
+    cotizaPension = trim(trailing '\r' from @cotizaPension);
+
+-- 3.3 Tabla Desocupado
+load data infile '${ruta}/2026/Octubre/desocupado_202610.csv'
+into table desocupado
+fields terminated by ','
+lines terminated by '\n'
+ignore 1 lines
+(@id)
+set idPersona = trim(trailing '\r' from @id);
+
+
+call sp_copiar_definiciones(202601, 202610);
+call sp_calcular_periodo(202610, 12);
+call sp_verificar_microdato(202610);
+select * from v_indicador_vigente where anio = 2026 and mes = 10 limit 20;
+
 -- Casos de prueba - 1
 insert into periodo (idPeriodo, anio, mes)
 values (202613, 2026, 13);
